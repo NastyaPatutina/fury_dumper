@@ -1,0 +1,44 @@
+exclude_relations: <class_name>.<relation_name>, <class_name>.<relation_name>
+batch_size: 100
+ratio_records_batches: 10
+fast: true
+mode: wide
+relative_services:
+  <service_name>:
+    database: <database_name>
+    host: <host>
+    port: <port>
+    user: <user>
+    password: <password>
+    tables:
+      <self_table_name>:
+        <remote_table_name>:
+          self_field_name: <self_field_name>
+          ms_model_name: <ms_model_name>
+          ms_field_name: <ms_field_name>
+        <other_remote_table_name>:
+          self_field_name: <self_field_name>
+          ms_model_name: <ms_model_name>
+          ms_field_name: <ms_field_name>
+      <other_self_table_name>:
+        <remote_table_name>:
+          self_field_name: <self_field_name>
+          ms_model_name: <ms_model_name>
+          ms_field_name: <ms_field_name>
+        <other_remote_table_name>:
+          self_field_name: <self_field_name>
+          ms_model_name: <ms_model_name>
+          ms_field_name: <ms_field_name>
+  <other_service_name>:
+    database: <database_name>
+    host: <host>
+    port: <port>
+    user: <user>
+    password: <password>
+    tables:
+      <self_table_name>:
+        <remote_table_name>:
+          self_field_name: <self_field_name>
+          ms_model_name: <ms_model_name>
+          ms_field_name: <ms_field_name>
+
