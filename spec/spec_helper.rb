@@ -7,7 +7,14 @@ require 'database_cleaner'
 
 RSpec.configure do |config|
   ActiveRecord::Base.logger = Logger.new($stdout)
-  ActiveRecord::Base.establish_connection adapter: 'postgresql', database: 'fury_dumper_test'
+  ActiveRecord::Base.establish_connection(
+    adapter: 'postgresql',
+    database: ENV['POSTGRES_DB'] || 'fury_dumper_test',
+    host: ENV['POSTGRES_HOST'] || 'localhost',
+    port: ENV['POSTGRES_PORT'] || '5432',
+    username: ENV['POSTGRES_USER'] || 'postgres',
+    password: ENV['POSTGRES_PASSWORD'] || 'postgres'
+  )
 
   # Enable flags like --only-failures and --next-failure
   config.example_status_persistence_file_path = '.rspec_status'
