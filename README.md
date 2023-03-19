@@ -6,7 +6,7 @@ It help you to get dump from remote database in main service and other microserv
 
 *Read this in other languages: [Russian](README.ru.md).*
 
-*For developers: [English](README_dev.md), [Russian](README_dev.ru.md).*
+*For developers: [English](README.md#dev-documentation), [Russian](README.ru.md#документация-для-разработчиков).*
 
 ## Installation
 
@@ -374,10 +374,10 @@ But non-fast mode makes queries slower due to the pg-planner building the query 
 
 * FuryDumper - initiates the dump process, performs batching on the first iteration
 * FuryDumper :: Dumper - the main class that implements the dump process, the main algorithm for tracking relation here
-* FuryDumper :: Dumper :: Model - model class
-* FuryDumper :: Dumper :: ModelQueue - a queue of models for a dump in width
-* FuryDumper :: Dumper :: DumpState - dump status class, information about those models that have already been dumped and some statistics  are stored here
-* FuryDumper :: Dumper :: RelationItem - communication structure - keys and values ​​used to dump. For ordinary models, RelationItem is compared with each other only by key. The Additional option makes it possible to compare by key and value. Complex - explicitly says that there will only be a key, that is, the key contains a string of the type `date_from IS NULL`, which is a condition for communication.
+* FuryDumper :: Dumpers :: Model - model class
+* FuryDumper :: Dumpers :: ModelQueue - a queue of models for a dump in width
+* FuryDumper :: Dumpers :: DumpState - dump status class, information about those models that have already been dumped and some statistics  are stored here
+* FuryDumper :: Dumpers :: RelationItem - communication structure - keys and values ​​used to dump. For ordinary models, RelationItem is compared with each other only by key. The Additional option makes it possible to compare by key and value. Complex - explicitly says that there will only be a key, that is, the key contains a string of the type `date_from IS NULL`, which is a condition for communication.
 * FuryDumper :: Api - a class for communicating with microservices
 * FuryDumper :: Config - config class
 * FuryDumper :: Encrypter - a class for encrypting passwords

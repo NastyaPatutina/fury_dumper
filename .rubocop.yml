@@ -1,0 +1,67 @@
+AllCops:
+  NewCops: enable
+  Exclude:
+    - 'rails_generators/fury_dumper_config/templates/*'
+
+require:
+  - rubocop-rspec
+  - rubocop-rails
+
+Metrics/MethodLength:
+  Description: "Avoid methods longer than 50 lines of code."
+  Enabled: true
+  Max: 50
+
+Metrics/ParameterLists:
+  Description: "Avoid parameter lists longer than three or four parameters."
+  Enabled: false
+
+Style/Documentation:
+  Description: "Document classes and non-namespace modules."
+  Enabled: false
+
+Metrics/AbcSize:
+  Description: >-
+    A calculated magnitude based on number of assignments,
+    branches, and conditions.
+  Enabled: false
+
+Rails/Output:
+  Description: "Checks for calls to puts, print, etc."
+  Enabled: false
+
+Metrics/ClassLength:
+  Description: "Avoid classes longer than 100 lines of code."
+  Enabled: false
+
+Metrics/CyclomaticComplexity:
+  Description: >-
+    A complexity metric that is strongly correlated to the number
+    of test cases needed to validate a method.
+  Max: 20
+  Enabled: true
+
+Metrics/PerceivedComplexity:
+  Description: A complexity metric geared towards measuring complexity for a human reader.
+  Enabled: true
+  Max: 20
+
+Layout/LineLength:
+  Description: "Limit lines to 120 characters."
+  Max: 120
+  Exclude:
+    - 'spec/**/*'
+
+RSpec/AnyInstance:
+  Enabled: false
+
+RSpec/StubbedMock:
+  Enabled: false
+
+RSpec/MultipleExpectations:
+  Description: Checks if examples contain too many `expect` calls.
+  Enabled: false
+
+RSpec/ExampleLength:
+  Description: Checks for long examples.
+  Enabled: false

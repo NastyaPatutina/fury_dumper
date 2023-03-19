@@ -1,15 +1,16 @@
-require "bundler/setup"
-require "fury_dumper"
+# frozen_string_literal: true
+
+require 'bundler/setup'
+require 'fury_dumper'
 require 'active_record'
 require 'database_cleaner'
 
-
 RSpec.configure do |config|
-  ActiveRecord::Base.logger = Logger.new(STDOUT)
+  ActiveRecord::Base.logger = Logger.new($stdout)
   ActiveRecord::Base.establish_connection adapter: 'postgresql', database: 'fury_dumper_test'
 
   # Enable flags like --only-failures and --next-failure
-  config.example_status_persistence_file_path = ".rspec_status"
+  config.example_status_persistence_file_path = '.rspec_status'
 
   # Disable RSpec exposing methods globally on `Module` and `main`
   config.disable_monkey_patching!
@@ -23,7 +24,7 @@ RSpec.configure do |config|
     DatabaseCleaner.clean_with(:truncation)
   end
 
-  config.around(:each) do |example|
+  config.around do |example|
     DatabaseCleaner.cleaning do
       example.run
     end

@@ -1,19 +1,21 @@
+# frozen_string_literal: true
+
 require 'rails'
-require "fury_dumper/version"
-require "fury_dumper/config"
-require "fury_dumper/engine"
-require "fury_dumper/dumper"
-require "fury_dumper/api"
-require "fury_dumper/dumper/relation_items"
-require "fury_dumper/dumper/dump_state"
-require "fury_dumper/dumper/model_queue"
-require "fury_dumper/dumper/model"
-require "fury_dumper/encrypter"
+require 'fury_dumper/version'
+require 'fury_dumper/config'
+require 'fury_dumper/engine'
+require 'fury_dumper/dumper'
+require 'fury_dumper/api'
+require 'fury_dumper/dumpers/relation_items'
+require 'fury_dumper/dumpers/dump_state'
+require 'fury_dumper/dumpers/model_queue'
+require 'fury_dumper/dumpers/model'
+require 'fury_dumper/encrypter'
 require 'httpclient'
 require 'highline/import'
 
 module FuryDumper
-  class Error < StandardError;
+  class Error < StandardError
   end
 
   def self.configuration
@@ -46,10 +48,8 @@ module FuryDumper
                 host:,
                 port:,
                 user:,
-                model_name: 'Lead',
+                field_values:, database:, model_name: 'Lead',
                 field_name: 'id',
-                field_values:,
-                database:,
                 debug_mode: :none,
                 ask: true)
 
@@ -59,21 +59,21 @@ module FuryDumper
 
     states = []
     field_values.to_a.in_groups_of(FuryDumper::Config.batch_size) do |batch|
-      relation_items = FuryDumper::Dumper::RelationItems.new_with_key_value(item_key: field_name, item_values: batch)
+      relation_items = FuryDumper::Dumpers::RelationItems.new_with_key_value(item_key: field_name, item_values: batch)
 
       sync = Dumper.new \
-          password:   password,
-          host:       host,
-          port:       port,
-          user:       user,
-          database:   database,
-          model:      FuryDumper::Dumper::Model.new(source_model: model_name, relation_items: relation_items),
-          debug_mode: debug_mode
+        password: password,
+        host: host,
+        port: port,
+        user: user,
+        database: database,
+        model: FuryDumper::Dumpers::Model.new(source_model: model_name, relation_items: relation_items),
+        debug_mode: debug_mode
 
-      if ask && !sync.have_equal_schemas?
-        confirm = ask("Are you sure to continue? [Y/N] ") { |yn| yn.limit = 1, yn.validate = /[yn]/i }
+      if ask && !sync.equal_schemas?
+        confirm = ask('Are you sure to continue? [Y/N] ') { |yn| yn.limit = 1, yn.validate = /[yn]/i }
         ask     = false
-        return unless confirm.downcase == 'y'
+        return unless confirm.downcase == 'y' # rubocop:disable Lint/NonLocalExitFromIterator
       end
 
       sync.sync_models
@@ -88,7 +88,13 @@ module FuryDumper
   end
 
   def self.check_type(field, expected_type, field_name)
-    is_ok     = expected_type.is_a?(Array) ? expected_type.any? { |type| field.is_a?(type) } : field.is_a?(expected_type)
+    is_ok     = if expected_type.is_a?(Array)
+                  expected_type.any? do |type|
+                    field.is_a?(type)
+                  end
+                else
+                  field.is_a?(expected_type)
+                end
     types_str = expected_type.is_a?(Array) ? expected_type.join(' or ') : expected_type
 
     raise ArgumentError, "Expected #{field_name} as #{types_str}, got: #{field.class}" unless is_ok

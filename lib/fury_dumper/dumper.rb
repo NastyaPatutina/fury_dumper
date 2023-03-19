@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module FuryDumper
   class Dumper
     attr_reader :dump_state
@@ -17,12 +19,12 @@ module FuryDumper
       @port =           port
       @model =          model
       @debug_mode =     debug_mode
-      @dump_state =     DumpState.new(root_source_model: @model_name)
+      @dump_state =     Dumpers::DumpState.new(root_source_model: @model_name)
       @undump_models =  []
     end
 
     def sync_models
-      p "--- Dump models ---"
+      p '--- Dump models ---'
       if FuryDumper::Config.mode == :wide
         sync_model_in_wight(@model)
       else
@@ -33,17 +35,18 @@ module FuryDumper
       print_undump_models
     end
 
-    def have_equal_schemas?
-      tables_list   = cur_connection.tables.map { |e| "'" + e + "'" }.join(', ')
-      sql           = "SELECT column_name, data_type, table_name FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name IN (#{tables_list});"
+    def equal_schemas?
+      tables_list   = cur_connection.tables.map { |e| "'#{e}'" }.join(', ')
+      sql           = 'SELECT column_name, data_type, table_name FROM INFORMATION_SCHEMA.COLUMNS ' \
+                      "WHERE table_name IN (#{tables_list});"
       cur_schema    = cur_connection.exec_query(sql).to_a
       remote_schema = remote_connection.exec_query(sql).to_a
       difference    = difference(remote_schema, cur_schema)
 
       if difference.present?
-        difference.group_by { |e| e["table_name"] }.each do |table_name, diff|
+        difference.group_by { |e| e['table_name'] }.each do |table_name, diff|
           p "💣 Found difference for table #{table_name}"
-          diff.sort_by { |e| e["column_name"] }.each do |dif|
+          diff.sort_by { |e| e['column_name'] }.each do |dif|
             if cur_schema.include?(dif)
               p "Current DB have column: #{dif['column_name']} <#{dif['data_type']}>"
             else
@@ -70,9 +73,10 @@ module FuryDumper
       buffer = model.to_full_str
 
       return unless dump_model(model)
+
       send_out_ms_dump(current_model)
 
-      return if is_empty_active_record?(model, buffer)
+      return if empty_active_record?(model, buffer)
 
       print buffer, model.iteration
 
@@ -81,10 +85,10 @@ module FuryDumper
         next unless valid_relation?(relation, model)
 
         # Исключения
-        next if is_excluded?(model, relation)
+        next if excluded?(model, relation)
 
         # Игнорим through
-        next if is_through?(relation, model.iteration)
+        next if through?(relation, model.iteration)
 
         # Если связана с полиморфной сущностью ...
         new_models = build_polymorphic_models(model, relation)
@@ -97,12 +101,12 @@ module FuryDumper
         end
 
         # Игнорим связи для другой БД
-        next if is_other_db?(relation, model.iteration)
+        next if other_db?(relation, model.iteration)
 
         print_new_model(model, relation)
 
         new_model = build_as_models(model, relation, @dump_state) ||
-            build_default_model(model, relation, @dump_state)
+                    build_default_model(model, relation, @dump_state)
 
         next if new_model.nil?
 
@@ -113,14 +117,16 @@ module FuryDumper
       true
     end
 
-    def sync_model_in_wight(model, model_queue = ModelQueue.new)
+    def sync_model_in_wight(model, model_queue = Dumpers::ModelQueue.new)
       print "Start #{model.to_short_str} dump", model.iteration if full_debug_mode?
       model_queue.add_element(model: model, dump_state: @dump_state)
 
       until model_queue.empty?
-        current_model, dump_state = model_queue.get_element
-        print "Relation #{current_model.to_short_str} start dump (queue size - #{model_queue.count})",
-              current_model.iteration if full_debug_mode?
+        current_model, dump_state = model_queue.fetch_element
+        if full_debug_mode?
+          print "Relation #{current_model.to_short_str} start dump (queue size - #{model_queue.count})",
+                current_model.iteration
+        end
 
         active_record_model = current_model.active_record_model
         next if relation_already_exist?(current_model, dump_state)
@@ -130,9 +136,11 @@ module FuryDumper
 
         buffer = current_model.to_full_str
         next unless dump_model(current_model)
+
         send_out_ms_dump(current_model)
 
-        next if is_empty_active_record?(current_model, buffer)
+        next if empty_active_record?(current_model, buffer)
+
         print buffer, current_model.iteration
 
         active_record_model.reflect_on_all_associations.each do |relation|
@@ -140,16 +148,17 @@ module FuryDumper
           next unless valid_relation?(relation, current_model)
 
           # Исключения
-          next if is_excluded?(current_model, relation)
+          next if excluded?(current_model, relation)
 
           # Игнорим through
-          next if is_through?(relation, current_model.iteration)
+          next if through?(relation, current_model.iteration)
 
           # Если связана с полиморфной сущностью ...
           new_models = build_polymorphic_models(current_model, relation)
           unless new_models.nil?
             new_models.each do |new_model|
               next if new_model.nil?
+
               model_queue.add_element(model: new_model, dump_state: dump_state)
             end
 
@@ -158,10 +167,10 @@ module FuryDumper
           print_new_model(current_model, relation)
 
           # Игнорим связи для другой БД
-          next if is_other_db?(relation, current_model.iteration)
+          next if other_db?(relation, current_model.iteration)
 
           new_model = build_as_models(current_model, relation, dump_state) ||
-              build_default_model(current_model, relation, dump_state)
+                      build_default_model(current_model, relation, dump_state)
 
           next if new_model.nil?
 
@@ -178,11 +187,13 @@ module FuryDumper
       self_field_name     = self_field_name(current_model, relation)
       relation_field_name = relation_field_name(relation, current_model.iteration).to_s
 
-      new_model = Model.new(source_model: relation_class,
-                            relation_items: RelationItems.new_with_key_value(item_key: relation_field_name,
-                                                                             item_values: []),
-                            iteration: current_model.next_iteration,
-                            root_model: current_model.root_model)
+      new_model = Dumpers::Model.new(source_model: relation_class,
+                                     relation_items: Dumpers::RelationItems.new_with_key_value(
+                                       item_key: relation_field_name,
+                                       item_values: []
+                                     ),
+                                     iteration: current_model.next_iteration,
+                                     root_model: current_model.root_model)
 
       # Связь с другой таблицей уже была
       return nil if relation_already_exist?(new_model, dump_state)
@@ -196,12 +207,12 @@ module FuryDumper
 
       return nil if relation_values.compact.empty?
 
-      items = [RelationItem.new(key: relation_field_name, values: relation_values)]
+      items = [Dumpers::RelationItem.new(key: relation_field_name, values_for_key: relation_values)]
 
       # Если связь со scope, получить все условия
-      items += get_scope_items(current_model, relation)
+      items += fetch_scope_items(current_model, relation)
 
-      new_model.relation_items = RelationItems.new_with_items(items: items)
+      new_model.relation_items = Dumpers::RelationItems.new_with_items(items: items)
 
       new_model
     end
@@ -216,26 +227,27 @@ module FuryDumper
 
     def build_polymorphic_models(current_model, relation)
       return nil unless relation.options[:polymorphic]
+
       active_record_values  = current_model.to_active_record_relation
       relation_foreign_key  = relation.foreign_key
       polymorphic_models    = attribute_values(active_record_values, relation.foreign_type)
 
-      print "Found polymorphic relation #{current_model.source_model}(#{relation.name.to_s}): #{ polymorphic_models.join(', ') }",
-            current_model.iteration
+      print "Found polymorphic relation #{current_model.source_model}(#{relation.name}): " \
+            "#{polymorphic_models.join(', ')}", current_model.iteration
 
       polymorphic_models.map do |polymorphic_model|
         next unless polymorphic_model
         next unless validate_model_by_name(polymorphic_model, current_model.iteration)
 
         polymorphic_primary_key = polymorphic_model.constantize.primary_key.to_s
-        type_values             = Hash[relation.foreign_type, polymorphic_model]
+        type_values             = { relation.foreign_type => polymorphic_model }
         polymorphic_values      = attribute_values(active_record_values.where(type_values), relation_foreign_key)
 
-        Model.new(source_model: polymorphic_model,
-                  relation_items: RelationItems.new_with_key_value(item_key: polymorphic_primary_key,
-                                                                   item_values: polymorphic_values),
-                  iteration: current_model.next_iteration,
-                  root_model: current_model.root_model)
+        Dumpers::Model.new(source_model: polymorphic_model,
+                           relation_items: Dumpers::RelationItems.new_with_key_value(item_key: polymorphic_primary_key,
+                                                                                     item_values: polymorphic_values),
+                           iteration: current_model.next_iteration,
+                           root_model: current_model.root_model)
       end
     end
 
@@ -246,21 +258,24 @@ module FuryDumper
       self_field_name     = self_field_name(current_model, relation)
       relation_field_name = relation_field_name(relation, current_model.iteration).to_s
 
-      new_model = Model.new(source_model: relation_class,
-                            relation_items: RelationItems.new_with_key_value(item_key: relation_field_name,
-                                                                             item_values: []),
-                            iteration: current_model.next_iteration,
-                            root_model: current_model.root_model)
+      new_model = Dumpers::Model.new(source_model: relation_class,
+                                     relation_items: Dumpers::RelationItems.new_with_key_value(
+                                       item_key: relation_field_name,
+                                       item_values: []
+                                     ),
+                                     iteration: current_model.next_iteration,
+                                     root_model: current_model.root_model)
 
-      print "Add source for #{current_model.source_model}(#{relation.name.to_s})", current_model.iteration
+      print "Add source for #{current_model.source_model}(#{relation.name})", current_model.iteration
 
       active_record_values  = current_model.to_active_record_relation
       relation_field_values = attribute_values(active_record_values, self_field_name)
 
-      items = [RelationItem.new(key: relation_field_name, values: relation_field_values),
-               RelationItem.new(key: relation.type, values: [current_model.source_model], additional: true)]
+      items = [Dumpers::RelationItem.new(key: relation_field_name, values_for_key: relation_field_values),
+               Dumpers::RelationItem.new(key: relation.type, values_for_key: [current_model.source_model],
+                                         additional: true)]
 
-      new_model.relation_items  = RelationItems.new_with_items(items: items)
+      new_model.relation_items  = Dumpers::RelationItems.new_with_items(items: items)
       new_model.root_model      = current_model
 
       # Связь с другой таблицей уже была
@@ -276,12 +291,12 @@ module FuryDumper
       case relation.macro
       when :belongs_to
         # Связь в этой таблице - получить нужные id = вытянуть значения
-        return relation_foreign_key
+        relation_foreign_key
       when :has_many, :has_one
         # Связь с другой таблице - получить где relation_foreign_key = текущие значения
-        return (relation_primary_key || current_model.primary_key).to_s
+        (relation_primary_key || current_model.primary_key).to_s
       when :has_and_belongs_to_many
-        return 'id'
+        'id'
       else
         print "Unknown macro in relation #{relation.macro}", current_model.iteration
       end
@@ -294,25 +309,23 @@ module FuryDumper
       case relation.macro
       when :belongs_to
         # Связь в этой таблице - получить нужные id = вытянуть значения
-        return (relation_primary_key || relation.klass.primary_key).to_s
+        (relation_primary_key || relation.klass.primary_key).to_s
       when :has_many, :has_one
         # Связь с другой таблице - получить где relation_foreign_key = текущие значения
-        return relation_foreign_key
+        relation_foreign_key
       when :has_and_belongs_to_many
-        return 'id'
+        'id'
       else
         print "Unknown macro in relation #{relation.macro}", iteration
       end
     end
 
     def validate_model_by_name(model_name, iteration)
-      begin
-        model_name.constantize.primary_key.to_s
-        true
-      rescue NameError, LoadError, NoMethodError => error
-        print "CRITICAL WARNING!!! #{error}", iteration
-        false
-      end
+      model_name.constantize.primary_key.to_s
+      true
+    rescue NameError, LoadError, NoMethodError => e # rubocop:disable Lint/ShadowedException
+      print "CRITICAL WARNING!!! #{e}", iteration
+      false
     end
 
     def log_model_warnings(current_model)
@@ -324,12 +337,13 @@ module FuryDumper
     def valid_relation?(relation, current_model)
       # у полиморфных связей relation.klass не иницализирован (OperationLog::Source не существует)
       return true if relation.options[:polymorphic]
+
       begin
         relation.klass.connection
         relation.klass.primary_key
         true
-      rescue NameError, LoadError => error
-        print "CRITICAL WARNING!!! #{error}", current_model.iteration
+      rescue NameError, LoadError => e
+        print "CRITICAL WARNING!!! #{e}", current_model.iteration
         false
       end
     end
@@ -337,17 +351,17 @@ module FuryDumper
     def relation_already_exist?(model, dump_state)
       buffer = "Relation #{model.to_short_str} already exists?"
       if dump_state.include_relation?(model)
-        print buffer + " Yes", model.iteration if full_debug_mode?
+        print "#{buffer} Yes", model.iteration if full_debug_mode?
         return true
       end
 
-      print buffer + " No", model.iteration if full_debug_mode?
+      print "#{buffer}  No", model.iteration if full_debug_mode?
       false
     end
 
-    def is_excluded?(current_model, relation)
+    def excluded?(current_model, relation)
       relation_name = "#{current_model.source_model}.#{relation.name}"
-      if FuryDumper::Config.is_exclude_relation?(relation_name)
+      if FuryDumper::Config.exclude_relation?(relation_name)
         print "Exclude relation: #{relation_name}", current_model.iteration
         return true
       end
@@ -355,25 +369,25 @@ module FuryDumper
       false
     end
 
-    def is_through?(relation, iteration)
+    def through?(relation, iteration)
       if relation.options[:through]
-        print "Ignore through relation #{relation.name.to_s}", iteration
+        print "Ignore through relation #{relation.name}", iteration
         return true
       end
 
       false
     end
 
-    def is_empty_active_record?(current_model, buffer)
+    def empty_active_record?(current_model, buffer)
       unless current_model.to_active_record_relation.exists?
-        print buffer + "(empty active record)", current_model.iteration
+        print "#{buffer} (empty active record)", current_model.iteration
         return true
       end
 
       false
     end
 
-    def is_other_db?(relation, iteration)
+    def other_db?(relation, iteration)
       # Check this db
       if relation.klass.connection.current_database != target_database
         print "Ignore #{relation.klass} from other db #{relation.klass.connection.current_database}", iteration
@@ -383,12 +397,14 @@ module FuryDumper
       false
     end
 
-    def is_narrowing_relation?(relation, current_model)
+    def narrowing_relation?(relation, current_model)
       relation_class = relation.klass.to_s
 
       if current_model.all_non_scoped_models.include?(relation_class)
-        print "Narrowing relation #{current_model.source_model}(#{relation.name.to_s})",
-              current_model.iteration if full_debug_mode?
+        if full_debug_mode?
+          print "Narrowing relation #{current_model.source_model}(#{relation.name})",
+                current_model.iteration
+        end
         return true
       end
 
@@ -400,7 +416,7 @@ module FuryDumper
       s_field_name  = self_field_name(current_model, relation)
       r_field_name  = relation_field_name(relation, current_model.iteration)
 
-      print "#{current_model.source_model}[#{relation.macro.to_s}] -> #{r_class} (#{s_field_name} -> #{r_field_name})",
+      print "#{current_model.source_model}[#{relation.macro}] -> #{r_class} (#{s_field_name} -> #{r_field_name})",
             current_model.iteration
     end
 
@@ -413,7 +429,7 @@ module FuryDumper
     end
 
     def print(message, indent)
-      p "[#{Time.now.to_s(:db)}]#{ format('%03d', indent)} #{'-' * indent}> #{message}" if debug_mode?
+      p "[#{Time.now.httpdate}]#{format('%03d', indent)} #{'-' * indent}> #{message}" if debug_mode?
     end
 
     def target_database
@@ -424,16 +440,18 @@ module FuryDumper
       active_record_values.map { |rel| rel.read_attribute(field_name) }.uniq
     end
 
-    def get_scope_items(current_model, relation)
+    def fetch_scope_items(current_model, relation)
       return [] unless relation.scope
 
       # Exclude some like this has_one :citizenship, ->(d) { where(lead_id: d.lead_id) }
       return [] if relation.scope.lambda?
 
-      return [] if is_narrowing_relation?(relation, current_model)
+      return [] if narrowing_relation?(relation, current_model)
 
-      print "Scoped relation will dump #{current_model.source_model}(#{relation.name.to_s})",
-            current_model.iteration if full_debug_mode?
+      if full_debug_mode?
+        print "Scoped relation will dump #{current_model.source_model}(#{relation.name})",
+              current_model.iteration
+      end
 
       scope_queue = relation.klass.instance_exec(&relation.scope)
       connection  = relation.klass.connection
@@ -443,7 +461,7 @@ module FuryDumper
 
       where_values(scope_queue).map do |arel|
         if arel.is_a?(String)
-          RelationItem.new(key: arel, values: nil, complex: true)
+          RelationItem.new(key: arel, values_for_key: nil, complex: true)
         elsif arel.is_a?(Arel::Nodes::Node)
           arel_node_parse(arel, connection, visitor, binds)
         end
@@ -454,7 +472,7 @@ module FuryDumper
       if ActiveRecord.version.version.to_f < 5.0
         binds = scope_queue.bind_values.dup
         binds.map! { |bv| connection.quote(*bv.reverse) }
-      elsif ActiveRecord.version.version.to_f == 5.0
+      elsif ActiveRecord.version.version.to_d == 5.0.to_d
         binds = scope_queue.bound_attributes.map(&:value).dup
         binds.map! { |bv| connection.quote(*bv) }
       else
@@ -468,7 +486,7 @@ module FuryDumper
                  result   = collect.substitute_binds(binds).join
                  binds.delete_at(0)
                  result
-               elsif ActiveRecord.version.version.to_f == 5.0
+               elsif ActiveRecord.version.version.to_d == 5.0.to_d
                  collector  = ActiveRecord::ConnectionAdapters::AbstractAdapter::BindCollector.new
                  collect    = visitor.accept(arel, collector)
                  result     = collect.substitute_binds(binds).join
@@ -476,13 +494,13 @@ module FuryDumper
                  result
                else
                  collector = Arel::Collectors::SubstituteBinds.new(
-                     connection,
-                     Arel::Collectors::SQLString.new
+                   connection,
+                   Arel::Collectors::SQLString.new
                  )
                  visitor.accept(arel, collector).value
                end
 
-      RelationItem.new(key: result, values: nil, complex: true)
+      Dumpers::RelationItem.new(key: result, values_for_key: nil, complex: true)
     end
 
     def where_values(scope_queue)
@@ -499,15 +517,16 @@ module FuryDumper
 
     def cur_connection
       cur_config = save_current_config
-      @connection ||= if cur_config != ActiveRecord::Base.connection_config
-                        ActiveRecord::Base.establish_connection(cur_config).connection
-                      else
-                        ActiveRecord::Base.connection
-                      end
+      @cur_connection ||= if cur_config == ActiveRecord::Base.connection_config
+                            ActiveRecord::Base.connection
+                          else
+                            ActiveRecord::Base.establish_connection(cur_config).connection
+                          end
     end
 
     def dump_by_sql(select_sql, table_name, table_primary_key)
-      system "export PGPASSWORD=#{@password} && psql #{default_psql_keys} -c \"\\COPY (#{select_sql}) TO '/tmp/tmp_copy.copy' WITH (FORMAT CSV, FORCE_QUOTE *);\" >> '/dev/null'"
+      system "export PGPASSWORD=#{@password} && psql #{default_psql_keys} -c \"\\COPY (#{select_sql}) TO " \
+             "'/tmp/tmp_copy.copy' WITH (FORMAT CSV, FORCE_QUOTE *);\" >> '/dev/null'"
 
       tmp_table_name = "tmp_#{table_name}"
       # copy to tmp table
@@ -516,7 +535,8 @@ module FuryDumper
 
       # delete existing records
       cur_connection.execute "ALTER TABLE #{table_name} DISABLE TRIGGER ALL;"
-      cur_connection.execute "DELETE FROM #{table_name} WHERE #{table_name}.#{table_primary_key} IN (SELECT #{table_primary_key} FROM #{tmp_table_name});"
+      cur_connection.execute "DELETE FROM #{table_name} WHERE #{table_name}.#{table_primary_key} IN " \
+                             "(SELECT #{table_primary_key} FROM #{tmp_table_name});"
 
       # copy to target table
       cur_connection.execute "COPY #{table_name} FROM '/tmp/tmp_copy.copy' WITH (FORMAT CSV);"
@@ -530,10 +550,9 @@ module FuryDumper
         select_sql = model.to_active_record_relation.to_sql
 
         dump_by_sql(select_sql, model.table_name, model.primary_key)
-      rescue ActiveRecord::ActiveRecordError => error
-        @undump_models << {model: model, error: error}
-        print "CRITICAL WARNING!!! #{error}", model.iteration
-        return true
+      rescue ActiveRecord::ActiveRecordError => e
+        @undump_models << { model: model, error: e }
+        print "CRITICAL WARNING!!! #{e}", model.iteration
       end
       true
     end
@@ -550,16 +569,16 @@ module FuryDumper
 
         # Get association foreign values
         association_foreign_key = relation.options[:association_foreign_key].to_s
-        cur_connection.exec_query(proxy_select).to_a.map { |ss| ss[association_foreign_key] }.uniq
-      rescue ActiveRecord::ActiveRecordError => error
-        @undump_models << {model: model, error: error}
-        print "CRITICAL WARNING!!! #{error}", model.iteration
+        cur_connection.exec_query(proxy_select).to_a.pluck(association_foreign_key).uniq
+      rescue ActiveRecord::ActiveRecordError => e
+        @undump_models << { model: model, error: e }
+        print "CRITICAL WARNING!!! #{e}", model.iteration
         []
       end
     end
 
     def print_undump_models
-      p "⚠️ ⚠️ ⚠️ These models were not dump due to pg errors ️⚠️ ⚠️ ⚠️" if @undump_models.present?
+      p '⚠️ ⚠️ ⚠️ These models were not dump due to pg errors ️⚠️ ⚠️ ⚠️' if @undump_models.present?
       @undump_models.each do |model|
         p "🔥 #{model[:model].to_full_str}"
         p "🔥 #{model[:error]}"
@@ -572,12 +591,12 @@ module FuryDumper
       end.join(', ')
     end
 
-    def difference(a, b)
-      a - b | b - a
+    def difference(this_val, other_val)
+      (this_val - other_val) | (other_val - this_val)
     end
 
     def save_current_config
-      @cur_config ||= ActiveRecord::Base.connection_config
+      @save_current_config ||= ActiveRecord::Base.connection_config
     end
 
     def remote_connection
@@ -591,15 +610,19 @@ module FuryDumper
     end
 
     def send_out_ms_dump(model)
-      return unless FuryDumper::Config.has_ms_relations?(model.table_name)
-      FuryDumper::Config.relative_services.each do |ms_name, ms_config|
-        ms_config['tables'][model.table_name]&.each do |other_model, other_model_config|
-          self_field_name = other_model_config['self_field_name']
-          as_field_name   = "buff_" + self_field_name.gsub(/\W+/, '')
+      return unless FuryDumper::Config.ms_relations?(model.table_name)
 
-          selected_values = attribute_values(model.to_active_record_relation.select("#{self_field_name} AS #{as_field_name}"), as_field_name)
+      FuryDumper::Config.relative_services.each do |ms_name, ms_config|
+        ms_config['tables'][model.table_name]&.each do |_other_model, other_model_config|
+          self_field_name = other_model_config['self_field_name']
+          as_field_name   = "#buff_#{self_field_name.gsub(/\W+/, '')}"
+
+          selected_values = attribute_values(
+            model.to_active_record_relation.select("#{self_field_name} AS #{as_field_name}"), as_field_name
+          )
 
           next if selected_values.to_a.compact.blank?
+
           Api.new(ms_name).send_request(other_model_config['ms_model_name'],
                                         other_model_config['ms_field_name'],
                                         selected_values.to_a)

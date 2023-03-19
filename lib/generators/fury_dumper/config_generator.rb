@@ -1,9 +1,10 @@
+# frozen_string_literal: true
+
 module FuryDumper
   module Generators
     class ConfigGenerator < Rails::Generators::Base
-
       def self.gem_root
-        File.expand_path("../../../..", __FILE__)
+        File.expand_path('../../..', __dir__)
       end
 
       def self.source_root
