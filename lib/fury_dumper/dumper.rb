@@ -516,40 +516,37 @@ module FuryDumper
     end
 
     def cur_connection
-      cur_config = save_current_config
-      @cur_connection ||= if cur_config == ActiveRecord::Base.connection_config
-                            ActiveRecord::Base.connection
-                          else
-                            ActiveRecord::Base.establish_connection(cur_config).connection
-                          end
+      @cur_connection = ActiveRecord::Base.establish_connection(save_current_config)
+      @cur_connection.connection
     end
 
-    def dump_by_sql(select_sql, table_name, table_primary_key)
+    def dump_by_sql(select_sql, table_name, table_primary_key, current_connection)
       system "export PGPASSWORD=#{@password} && psql #{default_psql_keys} -c \"\\COPY (#{select_sql}) TO " \
              "'/tmp/tmp_copy.copy' WITH (FORMAT CSV, FORCE_QUOTE *);\" >> '/dev/null'"
 
       tmp_table_name = "tmp_#{table_name}"
       # copy to tmp table
-      cur_connection.execute "CREATE TEMP TABLE #{tmp_table_name} (LIKE #{table_name} EXCLUDING ALL);"
-      cur_connection.execute "COPY #{tmp_table_name} FROM '/tmp/tmp_copy.copy' WITH (FORMAT CSV);"
+      current_connection.execute "CREATE TEMP TABLE #{tmp_table_name} (LIKE #{table_name} EXCLUDING ALL);"
+      current_connection.execute "COPY #{tmp_table_name} FROM '/tmp/tmp_copy.copy' WITH (FORMAT CSV);"
 
       # delete existing records
-      cur_connection.execute "ALTER TABLE #{table_name} DISABLE TRIGGER ALL;"
-      cur_connection.execute "DELETE FROM #{table_name} WHERE #{table_name}.#{table_primary_key} IN " \
-                             "(SELECT #{table_primary_key} FROM #{tmp_table_name});"
+      current_connection.execute "ALTER TABLE #{table_name} DISABLE TRIGGER ALL;"
+      current_connection.execute "DELETE FROM #{table_name} WHERE #{table_name}.#{table_primary_key} IN " \
+                                 "(SELECT #{table_primary_key} FROM #{tmp_table_name});"
 
       # copy to target table
-      cur_connection.execute "COPY #{table_name} FROM '/tmp/tmp_copy.copy' WITH (FORMAT CSV);"
-      cur_connection.execute "ALTER TABLE #{table_name} ENABLE TRIGGER ALL;"
+      current_connection.execute "COPY #{table_name} FROM '/tmp/tmp_copy.copy' WITH (FORMAT CSV);"
+      current_connection.execute "ALTER TABLE #{table_name} ENABLE TRIGGER ALL;"
 
-      cur_connection.execute "DROP TABLE #{tmp_table_name};"
+      current_connection.execute "DROP TABLE #{tmp_table_name};"
     end
 
     def dump_model(model)
-      ActiveRecord::Base.transaction do
+      current_connection = cur_connection
+      current_connection.transaction do
         select_sql = model.to_active_record_relation.to_sql
 
-        dump_by_sql(select_sql, model.table_name, model.primary_key)
+        dump_by_sql(select_sql, model.table_name, model.primary_key, current_connection)
       rescue ActiveRecord::ActiveRecordError => e
         @undump_models << { model: model, error: e }
         print "CRITICAL WARNING!!! #{e}", model.iteration
@@ -559,13 +556,14 @@ module FuryDumper
 
     # @return [Array of String] association foreign values
     def dump_proxy_table(model, relation)
-      ActiveRecord::Base.transaction do
+      current_connection = cur_connection
+      current_connection.transaction do
         select_sql        = model.to_active_record_relation.select(model.primary_key).to_sql
         proxy_table       = relation.options[:join_table].to_s
         proxy_foreign_key = relation.options[:foreign_key] || relation.foreign_key
 
         proxy_select      = "SELECT * FROM #{proxy_table} WHERE #{proxy_foreign_key} IN (#{select_sql})"
-        dump_by_sql(proxy_select, proxy_table, 'id')
+        dump_by_sql(proxy_select, proxy_table, 'id', current_connection)
 
         # Get association foreign values
         association_foreign_key = relation.options[:association_foreign_key].to_s
@@ -601,12 +599,13 @@ module FuryDumper
 
     def remote_connection
       save_current_config
-      @remote_connection ||= ActiveRecord::Base.establish_connection(adapter: 'postgresql',
-                                                                     database: @database,
-                                                                     host: @host,
-                                                                     port: @port,
-                                                                     username: @user,
-                                                                     password: @password).connection
+      @remote_connection = ActiveRecord::Base.establish_connection(adapter: 'postgresql',
+                                                                   database: @database,
+                                                                   host: @host,
+                                                                   port: @port,
+                                                                   username: @user,
+                                                                   password: @password)
+      @remote_connection.connection
     end
 
     def send_out_ms_dump(model)
