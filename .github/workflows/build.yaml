@@ -5,13 +5,39 @@ on: [push]
 jobs:
   tests:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:12.1-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fury_dumper_test
+        ports:
+          - 5432:5432
+        # needed because the postgres container does not provide a healthcheck
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+
     env:
       RAILS_ENV: test
     steps:
-      - uses: actions/checkout@v1
-      - name: RuboCop Linter
-        uses: andrewmcodes/rubocop-linter-action@v3.3.0
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
         with:
-          action_config_path: ".github/config/rubocop_linter_action.yml" # Note: this is the default location
+          ruby-version: 2.7.1
+      - name: Install dependencies
+        run: bundle install
+      - name: Test with RSpec
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RAILS_ENV: "test"
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fury_dumper_test
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          RUBYOPT: "-W:no-deprecated -W:no-experimental"
+        run: |
+          bundle exec rake
+      - name: Run rubocop
+        run: bundle exec rubocop --display-cop-names
