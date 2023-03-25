@@ -32,6 +32,6 @@ Gem::Specification.new do |spec|
   spec.add_runtime_dependency 'highline', '~> 1.6'
   spec.add_runtime_dependency 'httpclient', '~> 2.8'
   spec.add_runtime_dependency 'pg', '~> 1.4'
-  spec.add_runtime_dependency 'rails', '~> 5.0', '>= 4.0.13'
+  spec.add_runtime_dependency 'rails', '>= 4.0.13'
   spec.metadata['rubygems_mfa_required'] = 'true'
 end
