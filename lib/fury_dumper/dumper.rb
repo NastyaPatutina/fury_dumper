@@ -469,24 +469,26 @@ module FuryDumper
     end
 
     def bind_values(scope_queue, connection)
-      if ActiveRecord.version.version.to_f < 5.0
+      if ActiveRecord.version.version.to_d < '5.0.0.1'.to_d
         binds = scope_queue.bind_values.dup
         binds.map! { |bv| connection.quote(*bv.reverse) }
-      elsif ActiveRecord.version.version.to_d == 5.0.to_d
+      elsif ActiveRecord.version.version.to_d >= '5.0.0.1'.to_d && ActiveRecord.version.version.to_d <= '5.1.7'.to_d
         binds = scope_queue.bound_attributes.map(&:value).dup
         binds.map! { |bv| connection.quote(*bv) }
       else
+        # NOTICE: in rails > 5.1.7 bind_values are included in where_clause
         []
       end
     end
 
     def arel_node_parse(arel, connection, visitor, binds = [])
-      result = if ActiveRecord.version.version.to_f < 5.0
+      result = if ActiveRecord.version.version.to_d < '5.0.0.1'.to_d
                  collect  = visitor.accept(arel, Arel::Collectors::Bind.new)
                  result   = collect.substitute_binds(binds).join
                  binds.delete_at(0)
                  result
-               elsif ActiveRecord.version.version.to_d == 5.0.to_d
+               elsif ActiveRecord.version.version.to_d >= '5.0.0.1'.to_d &&
+                     ActiveRecord.version.version.to_d <= '5.1.7'.to_d
                  collector  = ActiveRecord::ConnectionAdapters::AbstractAdapter::BindCollector.new
                  collect    = visitor.accept(arel, collector)
                  result     = collect.substitute_binds(binds).join
@@ -499,12 +501,11 @@ module FuryDumper
                  )
                  visitor.accept(arel, collector).value
                end
-
       Dumpers::RelationItem.new(key: result, values_for_key: nil, complex: true)
     end
 
     def where_values(scope_queue)
-      if ActiveRecord.version.version.to_f < 5.0
+      if ActiveRecord.version.version.to_d < '5.0.0.1'.to_d
         scope_queue.where_values
       else
         scope_queue.where_clause.send(:predicates)
